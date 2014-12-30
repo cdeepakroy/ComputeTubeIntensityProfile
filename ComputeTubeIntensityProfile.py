@@ -123,7 +123,8 @@ def main():
     Given a tube's fly through image and mask files, computes the intensity 
     profiles along a cross-section perpendicular to the tube's tangent at 
     each point on the tube's center line, and generates a plot depicting the
-    median, lower and upper quartiles of the extracted intesnity profiles.
+    median, lower and upper quartiles of the extracted intesnity profiles, 
+    and displays and/or saves the plot to a file.
     """
 
     
@@ -140,12 +141,13 @@ def main():
                                       inside the tube in the tube's fly \
                                       through image file.")
                                       
-    inputParser.add_argument("outputTubeIntensityProfilePlotFile", 
+    inputParser.add_argument("outputTubeIntensityProfilePlotFile",
                               nargs = "?",
+                              type = argparse.FileType('w'),
                               help = "Path to a file in which to save \
                                       tube intensity profile plot. If \
                                       this argument is not provided then \
-                                      the plot will be displayed to the \
+                                      the plot will be displayed onto the \
                                       screen")                                      
 
     inputParser.add_argument("-t", "--title", 
