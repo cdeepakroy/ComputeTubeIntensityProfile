@@ -79,10 +79,9 @@ class ComputeTubeIntensityProfileWidget:
         
         # input tube fly through image selector
         self.inTubeImageSelector = self.slicer.qMRMLNodeComboBox()
-        self.inTubeImageSelector.nodeTypes = ( ("vtkMRMLScalarVolumeNode"), 
-                                             "" )
-        self.inTubeImageSelector.addAttribute( "vtkMRMLScalarVolumeNode", 
-                                             "LabelMap", 0 )
+        self.inTubeImageSelector.nodeTypes = (("vtkMRMLScalarVolumeNode"), "")
+        self.inTubeImageSelector.addAttribute("vtkMRMLScalarVolumeNode", 
+                                              "LabelMap", 0 )
         self.inTubeImageSelector.selectNodeUponCreation = True
         self.inTubeImageSelector.addEnabled = False
         self.inTubeImageSelector.removeEnabled = False
@@ -92,40 +91,38 @@ class ComputeTubeIntensityProfileWidget:
         self.inTubeImageSelector.setMRMLScene( self.slicer.mrmlScene )
         self.inTubeImageSelector.setToolTip( "Pick the tube fly through \
                                               image." )
-        ioFormLayout.addRow( "Input Tube Fly-through Image: ", 
-                                self.inTubeImageSelector)
+        ioFormLayout.addRow("Input Tube Fly-through Image: ", 
+                            self.inTubeImageSelector)
         
 
         # input tube fly through mask image selector
         self.inTubeMaskSelector = self.slicer.qMRMLNodeComboBox()
-        self.inTubeMaskSelector.nodeTypes = ( ("vtkMRMLScalarVolumeNode"), 
-                                                "" )
-        self.inTubeMaskSelector.addAttribute( "vtkMRMLScalarVolumeNode", 
-                                               "LabelMap", 1 )
+        self.inTubeMaskSelector.nodeTypes = (("vtkMRMLScalarVolumeNode"), "")
+        self.inTubeMaskSelector.addAttribute("vtkMRMLScalarVolumeNode", 
+                                             "LabelMap", 1 )
         self.inTubeMaskSelector.selectNodeUponCreation = True
         self.inTubeMaskSelector.addEnabled = False
         self.inTubeMaskSelector.removeEnabled = False
         self.inTubeMaskSelector.noneEnabled = False
         self.inTubeMaskSelector.showHidden = False
         self.inTubeMaskSelector.showChildNodeTypes = False
-        self.inTubeMaskSelector.setMRMLScene( self.slicer.mrmlScene )
-        self.inTubeMaskSelector.setToolTip( "Pick the tube fly through \
-                                             mask image." )
-        ioFormLayout.addRow( "Input Tube Fly-through Mask: ", 
-                                self.inTubeMaskSelector)
+        self.inTubeMaskSelector.setMRMLScene(self.slicer.mrmlScene)
+        self.inTubeMaskSelector.setToolTip("Pick the tube fly through \
+                                            mask image." )
+        ioFormLayout.addRow("Input Tube Fly-through Mask: ", 
+                            self.inTubeMaskSelector)
         
         #
         # output tube intensity profile array selector
         #
         self.outTubeProfileSelector = self.slicer.qMRMLNodeComboBox()
-        self.outTubeProfileSelector.nodeTypes = ( ("vtkMRMLDoubleArrayNode"), 
-                                                  "" )
+        self.outTubeProfileSelector.nodeTypes = (("vtkMRMLDoubleArrayNode"), "")
         self.outTubeProfileSelector.addEnabled = True
         self.outTubeProfileSelector.removeEnabled = True
         self.outTubeProfileSelector.noneEnabled = False
         self.outTubeProfileSelector.showHidden = False
         self.outTubeProfileSelector.showChildNodeTypes = False
-        self.outTubeProfileSelector.setMRMLScene( self.slicer.mrmlScene )
+        self.outTubeProfileSelector.setMRMLScene(self.slicer.mrmlScene)
         self.outTubeProfileSelector.setToolTip( "Pick the output tube \
                                                  intensity profile array." )
         ioFormLayout.addRow("Output Tube Intensity Profile: ", 
@@ -142,10 +139,10 @@ class ComputeTubeIntensityProfileWidget:
     
         # connections
         self.applyButton.connect('clicked(bool)', self.onApplyButton)
-        self.inTubeImageSelector.connect( "currentNodeChanged(vtkMRMLNode*)", 
+        self.inTubeImageSelector.connect("currentNodeChanged(vtkMRMLNode*)", 
                                          self.onSelect )
-        self.inTubeMaskSelector.connect( "currentNodeChanged(vtkMRMLNode*)", 
-                                         self.onSelect )
+        self.inTubeMaskSelector.connect("currentNodeChanged(vtkMRMLNode*)", 
+                                        self.onSelect )
         self.outTubeProfileSelector.connect("currentNodeChanged(vtkMRMLNode*)", 
                                             self.onSelect)
     
@@ -174,8 +171,7 @@ class ComputeTubeIntensityProfileWidget:
 #
 
 class ComputeTubeIntensityProfileLogic:
-    """
-    This class should implement all the actual 
+    """This class should implement all the actual 
     computation done by your module.  The interface 
     should be such that other python code can import
     this class and make use of the functionality without
@@ -184,9 +180,41 @@ class ComputeTubeIntensityProfileLogic:
     def __init__(self):
         self.chartNodeID = None
         pass
-    def run(self, inTubeImage, inTubeMask, outTubeProfile):
-        
 
+    def run(self, inTubeImage, inTubeMask, outTubeProfile):
+        """
+        Run the actual algorithm
+        """
+
+        def vtk_image_to_sitk_image(imVTK):
+            pass
+    
+        # convert images to sitk format
+        imTubeSitk = vtk_image_to_sitk_image(inTubeImage)
+        imTubeMaskSitk = vtk_image_to_sitk_image(inTubeMask)                
+                
+        # compute tube intensity profiles    
+        (tubeIntensityProfiles, 
+         nmzdDistToTubeCenter) = ComputeTubeIntensityProfiles(imTubeSitk,
+                                                              imTubeMaskSitk)
+                                         
+        # compute profile stats                                         
+        (profileMedian, 
+         profileLowerQuartile, 
+         profileUpperQuartile) = ComputeTubeIntensityProfileStats( 
+                                                     tubeIntensityProfiles )                                    
+        
+        # update output array
+        outTubeProfileArr = outTubeProfile.GetArray()
+        outTubeProfileArr.SetNumberOfTuples( np.size(profileMedian) )     
+        
+        for i in range(len(profileMedian)):
+            outTubeProfileArr.SetComponent(i, 0, nmzdDistToTubeCenter[i])
+            outTubeProfileArr.SetComponent(i, 1, profileMedian[i])
+            outTubeProfileArr.SetComponent(i, 2, 0)
+            
+        #             
+        
 def ComputeTubeIntensityProfileStats(intensityProfiles):
     profileMedian = np.percentile( intensityProfiles, 50, 0 )
     profileLowerQuartile = np.percentile( intensityProfiles, 25, 0 )
@@ -238,11 +266,9 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
     
     # Grab input
     imTube = sitk.GetArrayFromImage( imTubeSitk )
+    imTubeMask = sitk.GetArrayFromImage( imTubeMaskSitk )
 
     imageSize = imTubeSitk.GetSize()
-    imageSpacing = imTubeSitk.GetSpacing()        
-    
-    imTubeMask = sitk.GetArrayFromImage( imTubeMaskSitk )
 
     # Extract mid-y aka coronal cross section    
     if np.size( imageSize ) == 3:
@@ -253,7 +279,7 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
         imCrossSecTubeMask = imTubeMask        
 
     # compute max tube radius
-    maxRadius = 0
+    maxDiameter = 0
     
     for i in range(imCrossSecTubeMask.shape[0]):
         
@@ -261,18 +287,16 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
         if np.size(nzInd) == 0:
             continue;
             
-        curRad = nzInd[-1] - nzInd[0]
+        curDiameter = nzInd[-1] - nzInd[0]
         
-        if curRad > maxRadius:
-            maxRadius = curRad
+        if curDiameter > maxDiameter:
+            maxDiameter = curDiameter
 
     # extract intensity profile of each row in the cross section image       
     tubeIntensityProfiles = np.zeros((imCrossSecTubeMask.shape[0], 
-                                  maxRadius))
+                                      maxDiameter))
                                   
     interpolationSplineOrder = 3 # cubic spline interpolation
-    
-    distToTubeCenter = (np.arange(maxRadius) - maxRadius/2) * imageSpacing[0]
     
     for i in range(imCrossSecTubeMask.shape[0]):
         
@@ -282,7 +306,7 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
     
         curTubeIntensities = imCrossSecTube[i, nzInd[0]:nzInd[-1]]
         
-        curZoom = np.float( maxRadius ) / np.size(curTubeIntensities) 
+        curZoom = np.float( maxDiameter ) / np.size(curTubeIntensities) 
     
         curProfile = scipy.ndimage.zoom(curTubeIntensities, 
                                         zoom=curZoom, 
@@ -290,8 +314,9 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
         
         tubeIntensityProfiles[i, :] = curProfile    
         
+    nmzdDistToTubeCenter = (np.arange(maxDiameter) - (maxDiameter * 0.5)) / (maxDiameter * 0.5)
 
-    return (tubeIntensityProfiles, distToTubeCenter)
+    return (tubeIntensityProfiles, nmzdDistToTubeCenter)
         
 def main():    
     
@@ -305,7 +330,6 @@ def main():
     median, lower and upper quartiles of the extracted intesnity profiles, 
     and displays and/or saves the plot to a file.
     """
-
     
     inputParser = argparse.ArgumentParser(description=description)
     
@@ -349,8 +373,8 @@ def main():
     
     # compute tube intensity profiles    
     (tubeIntensityProfiles, 
-     distToTubeCenter) = ComputeTubeIntensityProfiles( imTubeSitk,
-                                                       imTubeMaskSitk )
+     nmzdDistToTubeCenter) = ComputeTubeIntensityProfiles(imTubeSitk,
+                                                          imTubeMaskSitk )
                                      
     # compute profile stats                                         
     (profileMedian, 
@@ -359,15 +383,15 @@ def main():
                                                  tubeIntensityProfiles )                                    
 
     # display
-    plt.plot(distToTubeCenter, profileMedian, linewidth=2.0)
+    plt.plot(nmzdDistToTubeCenter, profileMedian, linewidth=2.0)
     
-    plt.fill_between(distToTubeCenter, 
+    plt.fill_between(nmzdDistToTubeCenter, 
                      profileLowerQuartile, profileUpperQuartile, 
                      color='g', alpha=0.2)
                      
     plt.plot([], [], color='g', alpha=0.2, linewidth=10)
     
-    plt.xlabel('Distance from tube center (mm)')
+    plt.xlabel('Distance to tube center / max tube radius')
     plt.ylabel('Intensity (HU)')    
     plt.legend(['Median', 'IQR'])
     plt.title(args.title)
