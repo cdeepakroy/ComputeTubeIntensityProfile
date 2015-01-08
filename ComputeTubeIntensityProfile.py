@@ -45,8 +45,8 @@ class ComputeTubeIntensityProfileWidget:
             self.setup()
             self.parent.show()
             
-        self.isDeveloperMode = self.qt.QSettings().value('QtTesting/Enabled')
-                
+        self.isDeveloperMode = self.qt.QSettings().value('QtTesting/Enabled')        
+        
     def setup(self):
         # Instantiate and connect widgets ...
 
@@ -154,7 +154,7 @@ class ComputeTubeIntensityProfileWidget:
                                    self.inTubeMaskSelector.currentNode() and \
                                    self.outTubeProfileSelector.currentNode()
 
-    def onApplyButton(self):
+    def onApplyButton(self):       
         logic = ComputeTubeIntensityProfileLogic()
         logic.run(self.inTubeImageSelector.currentNode(), 
                   self.inTubeMaskSelector.currentNode(),
@@ -179,6 +179,8 @@ class ComputeTubeIntensityProfileLogic:
     """
     def __init__(self):
         self.chartNodeID = None
+        self.slicer = __import__("slicer", fromlist="__main__")
+        self.vtk = __import__("vtk", fromlist="__main__")
         pass
 
     def run(self, inTubeImage, inTubeMask, outTubeProfile):
@@ -187,22 +189,25 @@ class ComputeTubeIntensityProfileLogic:
         """
 
         def vtk_image_to_sitk_image(imVTK):
-            pass
-    
+            
+            dims = imVTK.GetDimensions()
+            
+            imArr = self.vtk.util.numpy_support.vtk_to_numpy(imVTK.GetPointData().GetScalars())
+            imArr = imArr.reshape(dims[2], dims[1], dims[0])
+            
+            return sitk.GetImageFromArray(imArr)
+            
         # convert images to sitk format
-        imTubeSitk = vtk_image_to_sitk_image(inTubeImage)
-        imTubeMaskSitk = vtk_image_to_sitk_image(inTubeMask)                
+        imTubeSitk = vtk_image_to_sitk_image(inTubeImage.GetImageData())
+        imTubeMaskSitk = vtk_image_to_sitk_image(inTubeMask.GetImageData())                
                 
         # compute tube intensity profiles    
         (tubeIntensityProfiles, 
          nmzdDistToTubeCenter) = ComputeTubeIntensityProfiles(imTubeSitk,
                                                               imTubeMaskSitk)
                                          
-        # compute profile stats                                         
-        (profileMedian, 
-         profileLowerQuartile, 
-         profileUpperQuartile) = ComputeTubeIntensityProfileStats( 
-                                                     tubeIntensityProfiles )                                    
+        # compute profile stats  
+        profileMedian = np.median(tubeIntensityProfiles, 0)
         
         # update output array
         outTubeProfileArr = outTubeProfile.GetArray()
@@ -212,10 +217,33 @@ class ComputeTubeIntensityProfileLogic:
             outTubeProfileArr.SetComponent(i, 0, nmzdDistToTubeCenter[i])
             outTubeProfileArr.SetComponent(i, 1, profileMedian[i])
             outTubeProfileArr.SetComponent(i, 2, 0)
+        
+        # update chart
+        ln = self.slicer.util.getNode(pattern='vtkMRMLLayoutNode*')
+        ln.SetViewArrangement(24)
+
+        cn = None
+        if self.chartNodeID:
+            cn = self.slicer.mrmlScene.GetNodeByID(self.chartNodeID)
             
-        #             
+        if not cn:
+            cn = self.slicer.mrmlScene.AddNode(self.slicer.vtkMRMLChartNode())
+            self.chartNodeID = cn.GetID()
+            cn.SetProperty('default', 'title', 
+                           'Median Tube Intensity profile')
+            cn.SetProperty('default','xAxisLabel', 
+                           'Distance to tube center / max tube radius')
+            cn.SetProperty('default', 'yAxisLabel', 
+                           'Intensity (HU)')
+                           
+        cn.AddArray(inTubeImage.GetName(), outTubeProfile.GetID())                           
+        
+        cvn = self.slicer.util.getNode(pattern="vtkMRMLChartViewNode*")
+        cvn.SetChartNodeID(cn.GetID())
+        cvn.Modified()
         
 def ComputeTubeIntensityProfileStats(intensityProfiles):
+    
     profileMedian = np.percentile( intensityProfiles, 50, 0 )
     profileLowerQuartile = np.percentile( intensityProfiles, 25, 0 )
     profileUpperQuartile = np.percentile( intensityProfiles, 75, 0 )        
@@ -262,8 +290,6 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
             in the intensityProfiles matrix        
     """
 
-    import scipy.ndimage
-    
     # Grab input
     imTube = sitk.GetArrayFromImage( imTubeSitk )
     imTubeMask = sitk.GetArrayFromImage( imTubeMaskSitk )
@@ -279,7 +305,7 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
         imCrossSecTubeMask = imTubeMask        
 
     # compute max tube radius
-    maxDiameter = 0
+    maxTubeDiameter = 0
     
     for i in range(imCrossSecTubeMask.shape[0]):
         
@@ -287,34 +313,44 @@ def ComputeTubeIntensityProfiles(imTubeSitk,
         if np.size(nzInd) == 0:
             continue;
             
-        curDiameter = nzInd[-1] - nzInd[0]
+        curDiameter = nzInd[-1] - nzInd[0] + 1
         
-        if curDiameter > maxDiameter:
-            maxDiameter = curDiameter
+        if curDiameter > maxTubeDiameter:
+            maxTubeDiameter = curDiameter
 
-    # extract intensity profile of each row in the cross section image       
+    # extract intensity profile of each row in the cross section image      
     tubeIntensityProfiles = np.zeros((imCrossSecTubeMask.shape[0], 
-                                      maxDiameter))
+                                      maxTubeDiameter))
                                   
-    interpolationSplineOrder = 3 # cubic spline interpolation
-    
     for i in range(imCrossSecTubeMask.shape[0]):
         
+        # extract the part of the current profile inside the tube
         nzInd = imCrossSecTubeMask[i,:].nonzero()[0]
         if np.size(nzInd) == 0:
             continue;
-    
+        
         curTubeIntensities = imCrossSecTube[i, nzInd[0]:nzInd[-1]]
+        minVal = curTubeIntensities.min()
         
-        curZoom = np.float( maxDiameter ) / np.size(curTubeIntensities) 
-    
-        curProfile = scipy.ndimage.zoom(curTubeIntensities, 
-                                        zoom=curZoom, 
-                                        order=interpolationSplineOrder)
+        # pad values
+        curTubeIntensities = np.append(curTubeIntensities, minVal)
+        curTubeIntensities = np.insert(curTubeIntensities, 0, minVal)
         
-        tubeIntensityProfiles[i, :] = curProfile    
+        # resize to maxTubeDiameter
+        rzFactor = np.size(curTubeIntensities) / np.float(maxTubeDiameter)
         
-    nmzdDistToTubeCenter = (np.arange(maxDiameter) - (maxDiameter * 0.5)) / (maxDiameter * 0.5)
+        resampler = sitk.ResampleImageFilter()
+        resampler.SetTransform(sitk.Transform())
+        resampler.SetInterpolator(sitk.sitkLinear)
+        resampler.SetSize([int(maxTubeDiameter), 2])
+        resampler.SetOutputSpacing( [rzFactor, rzFactor])  
+        resampler.SetDefaultPixelValue(minVal.astype('double'))
+        curProfile = resampler.Execute(sitk.GetImageFromArray(np.tile(curTubeIntensities,(2,1))) )
+        curProfile = sitk.GetArrayFromImage(curProfile)[0,:]
+        
+        tubeIntensityProfiles[i, :] = curProfile 
+        
+    nmzdDistToTubeCenter = (np.arange(maxTubeDiameter) - (maxTubeDiameter * 0.5)) / (maxTubeDiameter * 0.5)
 
     return (tubeIntensityProfiles, nmzdDistToTubeCenter)
         
